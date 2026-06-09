@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..crud import wellness_crud
+from ..crud import reward_crud, wellness_crud
 from ..crud.wellness_crud import delete_availability_slot
 from ..database import get_db
 from ..dependencies import get_current_user
 from ..google_calendar import create_meet_link
+from ..models.reward import RewardTrigger
 from ..models.user import User, UserRole
 from ..schemas.wellness import (
     CounsellingCreate,
@@ -168,14 +169,36 @@ def book_slot(
     current_user: User = Depends(get_current_user),
 ):
     _assert_wellness_access(current_user, user_id)
+    slot = wellness_crud.get_availability_slot(db, slot_id)
+    if not slot or not slot.is_available:
+        raise HTTPException(status_code=400, detail="Slot is not available")
+
+    # If the slot was created before Calendar was authorized, generate the link now.
+    if not slot.meeting_url:
+        meet_url = create_meet_link(
+            title=f"CareSkill: {payload.topic or slot.topic or 'Counselling'} with {slot.mentor_name}",
+            starts_at=slot.starts_at,
+            ends_at=slot.ends_at,
+            description=f"CareSkill counselling session with mentor {slot.mentor_name}.",
+        )
+        if meet_url:
+            slot.meeting_url = meet_url
+            db.commit()
+
     session = wellness_crud.book_availability_slot(db, user_id, slot_id, payload.topic)
     if not session:
         raise HTTPException(status_code=400, detail="Slot is not available")
+    reward_crud.award_rule_reward(
+        db, user_id=user_id,
+        trigger=RewardTrigger.counselling_booked,
+        source_type="counselling", source_id=session.id,
+        message="Counselling session booked",
+    )
     return session
 
 
 @router.post("/counselling", response_model=CounsellingResponse, status_code=201,
-             summary="Book a counselling session [self, mentor, admin]")
+             summary="Book a counselling session directly (no slot) [self, mentor, admin]")
 def book_session(
     user_id: int,
     payload: CounsellingCreate,
@@ -183,7 +206,29 @@ def book_session(
     current_user: User = Depends(get_current_user),
 ):
     _assert_wellness_access(current_user, user_id)
-    return wellness_crud.create_counselling_session(db, user_id, payload)
+
+    # Auto-generate Meet link if not supplied and Calendar is authorised.
+    payload_data = payload.model_dump()
+    if not payload_data.get("meeting_url") and payload_data.get("scheduled_at") and payload_data.get("ends_at"):
+        mentor_label = payload_data.get("counsellor_name") or "Mentor"
+        meet_url = create_meet_link(
+            title=f"CareSkill: {payload_data.get('topic') or 'Counselling'} with {mentor_label}",
+            starts_at=payload_data["scheduled_at"],
+            ends_at=payload_data["ends_at"],
+            description=f"CareSkill counselling session with {mentor_label}.",
+        )
+        if meet_url:
+            payload_data["meeting_url"] = meet_url
+            payload = payload.model_copy(update={"meeting_url": meet_url})
+
+    session = wellness_crud.create_counselling_session(db, user_id, payload)
+    reward_crud.award_rule_reward(
+        db, user_id=user_id,
+        trigger=RewardTrigger.counselling_booked,
+        source_type="counselling", source_id=session.id,
+        message="Counselling session booked",
+    )
+    return session
 
 
 @router.patch("/counselling/{session_id}", response_model=CounsellingResponse,
@@ -202,4 +247,11 @@ def update_session(
     session = wellness_crud.update_counselling_session(db, session_id, payload)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    if payload.status and payload.status.value == "completed":
+        reward_crud.award_rule_reward(
+            db, user_id=current_user.id,
+            trigger=RewardTrigger.session_conducted,
+            source_type="counselling", source_id=session_id,
+            message="Counselling session conducted",
+        )
     return session

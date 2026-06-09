@@ -28,6 +28,8 @@ import 'widgets/daily_challenge_card.dart';
 import 'widgets/daily_motivation_card.dart';
 import 'widgets/parent_preview_panel.dart';
 import 'widgets/skill_category_card.dart';
+import 'widgets/earn_rewards_card.dart';
+import 'widgets/streak_card.dart';
 import 'widgets/upcoming_counselling_banner.dart';
 import 'widgets/welcome_banner.dart';
 
@@ -288,6 +290,10 @@ class _HomeViewState extends State<HomeView> with WidgetsBindingObserver {
             ),
 
             const DailyMotivationCard(),
+
+            const StreakCard(),
+
+            const EarnRewardsCard(),
 
             // ── Continue Learning ──────────────────────────────────
             const SectionHeader(title: 'Continue Learning'),

@@ -5,6 +5,7 @@ from ..crud import user_crud
 from ..database import get_db
 from ..dependencies import admin_only, get_current_user, require_role
 from ..models.user import User, UserRole
+from ..permissions import serialize_roles
 from ..schemas.user import (
     UserCreate,
     UserResponse,
@@ -114,6 +115,7 @@ def assign_role(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.role = payload.role
+    user.roles = serialize_roles([payload.role])
     db.commit()
     db.refresh(user)
     return user

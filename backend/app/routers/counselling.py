@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from ..crud import counselling_crud
 from ..database import get_db
 from ..dependencies import admin_only, get_current_user, mentor_or_above, require_role
+from ..google_calendar import get_authorization_url, is_calendar_authorized
 from ..models.user import User, UserRole
 from ..schemas.counselling import (
     CounsellingAnalyticsResponse,
@@ -124,20 +125,38 @@ def get_analytics(
     return counselling_crud.get_analytics(db)
 
 
-# ── Google Calendar stub ───────────────────────────────────────────────────────
+# ── Google Calendar / Meet status ─────────────────────────────────────────────
 
-@router.post("/calendar/sync/{mentor_id}",
-             summary="Google Calendar sync stub [admin, mentor]")
-def calendar_sync(
-    mentor_id: int,
+@router.get("/calendar/meet-status",
+            summary="Google Calendar + Meet authorization status [admin, mentor]")
+def meet_status(
     current_user: User = Depends(
         require_role(UserRole.admin, UserRole.super_admin, UserRole.mentor)
     ),
 ):
+    """
+    Returns whether the server is authorized to auto-create Google Meet links.
+    If not authorized, returns the URL the admin must visit to connect.
+    """
+    authorized = is_calendar_authorized()
+    if authorized:
+        return {
+            "authorized": True,
+            "message": "Google Calendar is connected. Meet links are auto-generated when slots are created or sessions are booked.",
+        }
+    try:
+        auth_url, _ = get_authorization_url()
+    except Exception:
+        auth_url = None
     return {
-        "status": "stub",
-        "message": "Google Calendar integration pending OAuth2 setup. "
-                   "Required: Google Cloud project, OAuth2 credentials, "
-                   "google-auth + google-api-python-client packages.",
-        "mentor_id": mentor_id,
+        "authorized": False,
+        "message": "Google Calendar is not connected. An admin must authorize the app once.",
+        "setup_url": "/auth/google/calendar/authorize",
+        "authorization_url": auth_url,
+        "instructions": (
+            "1. Open authorization_url in a browser. "
+            "2. Sign in with the Google account that will host all Meet calls. "
+            "3. You will be redirected back automatically. "
+            "4. After authorization, all new slots and bookings will get Meet links."
+        ),
     }

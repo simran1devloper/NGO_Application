@@ -1,18 +1,18 @@
 """
 FastAPI dependency factories for authentication and role-based access control.
 
-Role hierarchy (lowest → highest):
-  guest(0) → student(1) → content_creator(2) → mentor(3) → admin(4) → super_admin(5)
+Role model:
+  admin → super_admin is hierarchical.
+  content_creator, mentor, and mediator are feature roles.
 
-require_role() uses this hierarchy: a user at level N satisfies any requirement
-whose minimum level is ≤ N. Example: require_role(mentor) grants access to
-mentor, admin, and super_admin — but not to content_creator or student.
+Feature roles do not inherit from each other. A user gets combined access by
+holding multiple roles, for example ["mediator", "content_creator"].
 
 Usage in routers:
   # Any authenticated user:
   current_user: User = Depends(get_current_user)
 
-  # Minimum role (with inheritance):
+  # Feature or admin role:
   _: User = Depends(require_role(UserRole.mentor))
 
   # Named permission check:
@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from .crud.auth_crud import decode_token, is_token_revoked
 from .database import get_db
 from .models.user import User, UserRole
-from .permissions import ROLE_HIERARCHY, ROLE_PERMISSIONS, Permission
+from .permissions import ADMIN_ROLES, ROLE_HIERARCHY, ROLE_PERMISSIONS, Permission, parse_roles
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -91,25 +91,42 @@ def _role_level(role: UserRole) -> int:
         return -1
 
 
+def user_roles(user: User) -> list[UserRole]:
+    """Return every role held by a user, including the primary role."""
+    return parse_roles(user.roles, user.role)
+
+
+def _has_allowed_role(current_user: User, allowed: tuple[UserRole, ...]) -> bool:
+    roles = set(user_roles(current_user))
+    allowed_set = set(allowed)
+
+    if roles & allowed_set:
+        return True
+
+    # Only admin roles inherit down into feature areas.
+    if roles & ADMIN_ROLES and not allowed_set.isdisjoint(set(UserRole)):
+        return True
+
+    return False
+
+
 # ── dependency factories ───────────────────────────────────────────────────────
 
 def require_role(*allowed: UserRole):
     """
-    Dependency factory that enforces role-based access with hierarchy inheritance.
+    Dependency factory that enforces role-based access.
 
-    The minimum level among `allowed` roles is computed. Any caller whose role
-    sits at or above that level is granted access. This means require_role(mentor)
-    also admits admin and super_admin without listing them explicitly.
+    Non-admin roles are feature grants: a user must explicitly hold one of the
+    requested roles. Admin and super_admin are hierarchical management roles and
+    satisfy feature-role guards.
 
-    Raises HTTP 403 when the caller's role is below the minimum required level.
+    Raises HTTP 403 when the caller does not hold any required role.
     """
     if not allowed:
         raise ValueError("require_role() called with no roles")
 
-    min_level = min(_role_level(r) for r in allowed)
-
     def _guard(current_user: User = Depends(get_current_user)) -> User:
-        if _role_level(current_user.role) >= min_level:
+        if _has_allowed_role(current_user, allowed):
             return current_user
         raise HTTPException(
             status_code=403,
@@ -122,12 +139,11 @@ def require_permission(permission: Permission):
     """
     Dependency factory that enforces a named permission.
 
-    Checks ROLE_PERMISSIONS for the caller's role. Use this for fine-grained
-    checks that go beyond simple hierarchy (e.g., VIEW_ANALYTICS which is
-    granted to mentor+ but not to content_creator even though cc < mentor).
+    Checks the union of ROLE_PERMISSIONS for every role the caller holds.
     """
     def _guard(current_user: User = Depends(get_current_user)) -> User:
-        if permission in ROLE_PERMISSIONS.get(current_user.role, frozenset()):
+        roles = user_roles(current_user)
+        if any(permission in ROLE_PERMISSIONS.get(role, frozenset()) for role in roles):
             return current_user
         raise HTTPException(
             status_code=403,
@@ -163,6 +179,14 @@ def content_creator_or_above(
 def non_student(
     current_user: User = Depends(
         require_role(UserRole.content_creator, UserRole.mentor, UserRole.admin, UserRole.super_admin)
+    ),
+) -> User:
+    return current_user
+
+
+def mediator_or_above(
+    current_user: User = Depends(
+        require_role(UserRole.mediator, UserRole.admin, UserRole.super_admin)
     ),
 ) -> User:
     return current_user

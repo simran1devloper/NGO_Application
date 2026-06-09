@@ -11,7 +11,9 @@ import '../events/admin/event_manager_screen.dart';
 import '../helping_support/admin/counselling_admin_screen.dart';
 import '../helping_support/admin/emergency_contacts_admin_screen.dart';
 import '../home/admin/safety_awareness_manager_screen.dart';
+import 'google_calendar_setup_screen.dart';
 import 'pending_approvals_screen.dart';
+import 'reward_rules_screen.dart';
 import 'user_approval_detail_screen.dart';
 import 'user_management_screen.dart';
 
@@ -118,8 +120,9 @@ class _AdminDashboardViewState extends State<AdminDashboardView> {
                 onOpenEvents: () => _push(const EventManagerScreen()),
                 onOpenCounselling: () => _push(const CounsellingAdminScreen()),
                 onOpenSafety: () => _push(const SafetyAwarenessManagerScreen()),
-                onOpenEmergency: () =>
-                    _push(const EmergencyContactsAdminScreen()),
+                onOpenEmergency: () => _push(const EmergencyContactsAdminScreen()),
+                onOpenCalendar: () => _push(const GoogleCalendarSetupScreen()),
+                onOpenRewards: () => _push(const RewardRulesScreen()),
               ),
             ],
           ),
@@ -776,11 +779,12 @@ class _UserTableToolbar extends StatelessWidget {
             items: const [
               DropdownMenuItem(value: null, child: Text('All roles')),
               DropdownMenuItem(value: 'student', child: Text('Student')),
-              DropdownMenuItem(value: 'mentor', child: Text('Counsellor')),
               DropdownMenuItem(
                 value: 'content_creator',
                 child: Text('Content Creator'),
               ),
+              DropdownMenuItem(value: 'mentor', child: Text('Counsellor')),
+              DropdownMenuItem(value: 'mediator', child: Text('Mediator')),
               DropdownMenuItem(value: 'admin', child: Text('Admin')),
             ],
             onChanged: onRoleChanged,
@@ -1278,11 +1282,12 @@ class _RoleAssignmentDialogState extends State<_RoleAssignmentDialog> {
         ),
         items: const [
           DropdownMenuItem(value: 'student', child: Text('Student')),
-          DropdownMenuItem(value: 'mentor', child: Text('Counsellor')),
           DropdownMenuItem(
             value: 'content_creator',
             child: Text('Content Creator'),
           ),
+          DropdownMenuItem(value: 'mentor', child: Text('Counsellor')),
+          DropdownMenuItem(value: 'mediator', child: Text('Mediator')),
           DropdownMenuItem(value: 'admin', child: Text('Admin')),
         ],
         onChanged: (value) {
@@ -1542,6 +1547,8 @@ class _ManagementTools extends StatelessWidget {
     required this.onOpenCounselling,
     required this.onOpenSafety,
     required this.onOpenEmergency,
+    required this.onOpenCalendar,
+    required this.onOpenRewards,
   });
 
   final int pendingCount;
@@ -1552,6 +1559,8 @@ class _ManagementTools extends StatelessWidget {
   final VoidCallback onOpenCounselling;
   final VoidCallback onOpenSafety;
   final VoidCallback onOpenEmergency;
+  final VoidCallback onOpenCalendar;
+  final VoidCallback onOpenRewards;
 
   @override
   Widget build(BuildContext context) {
@@ -1597,6 +1606,20 @@ class _ManagementTools extends StatelessWidget {
         subtitle: 'Manage helplines',
         color: AppColors.ink,
         onTap: onOpenEmergency,
+      ),
+      _ToolData(
+        icon: Icons.video_call_rounded,
+        label: 'Google Meet',
+        subtitle: 'Calendar & Meet setup',
+        color: const Color(0xFF1A73E8),
+        onTap: onOpenCalendar,
+      ),
+      _ToolData(
+        icon: Icons.card_giftcard_rounded,
+        label: 'Reward Rules',
+        subtitle: 'Role-based reward config',
+        color: AppColors.accent,
+        onTap: onOpenRewards,
       ),
     ];
 
@@ -1822,8 +1845,9 @@ class _ApprovalBadge extends StatelessWidget {
 
 String _roleLabel(String role) => switch (role) {
   'student' => 'Student',
-  'mentor' => 'Counsellor',
   'content_creator' => 'Creator',
+  'mentor' => 'Counsellor',
+  'mediator' => 'Mediator',
   'admin' => 'Admin',
   'super_admin' => 'Super Admin',
   'guest' => 'Guest',
@@ -1833,6 +1857,7 @@ String _roleLabel(String role) => switch (role) {
 Color _roleColor(String role) => switch (role) {
   'mentor' => AppColors.secondary,
   'content_creator' => AppColors.accent,
+  'mediator' => const Color(0xFF009688),
   'admin' || 'super_admin' => const Color(0xFF6B48FF),
   'student' => AppColors.primary,
   _ => AppColors.muted,

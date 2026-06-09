@@ -8,13 +8,14 @@ class AuthRepository {
 
   // ── Email / password ──────────────────────────────────────────────────────
 
-  static Future<TokenResponse> login(String email, String password) async {
-    final json =
-        await ApiClient.post('/auth/login', {
-              'email': email,
-              'password': password,
-            })
-            as Map<String, dynamic>;
+  static Future<TokenResponse> login(
+    String email,
+    String password, {
+    String? recaptchaToken,
+  }) async {
+    final body = <String, dynamic>{'email': email, 'password': password};
+    if (recaptchaToken != null) body['recaptcha_token'] = recaptchaToken;
+    final json = await ApiClient.post('/auth/login', body) as Map<String, dynamic>;
     return TokenResponse.fromJson(json);
   }
 
@@ -68,6 +69,7 @@ class AuthRepository {
     String? parentEmail,
     String? phone,
     String? requestedRole,
+    String? recaptchaToken,
   }) async {
     final body = <String, dynamic>{
       'name': name,
@@ -85,6 +87,7 @@ class AuthRepository {
     addIfFilled('parent_email', parentEmail);
     addIfFilled('phone', phone);
     addIfFilled('requested_role', requestedRole);
+    if (recaptchaToken != null) body['recaptcha_token'] = recaptchaToken;
 
     final raw =
         await ApiClient.post('/auth/register', body) as Map<String, dynamic>;

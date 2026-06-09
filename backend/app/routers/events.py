@@ -3,10 +3,11 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from ..crud import event_crud
+from ..crud import event_crud, reward_crud
 from ..database import get_db
 from ..dependencies import get_current_user, require_role
 from ..models.event import EventStatus
+from ..models.reward import RewardTrigger
 from ..models.user import User, UserRole
 from ..schemas.event import (
     AttachQuizRequest,
@@ -164,13 +165,19 @@ def delete_event(
 def publish_event(
     event_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(
+    current_user: User = Depends(
         require_role(UserRole.admin, UserRole.super_admin, UserRole.mentor, UserRole.content_creator)
     ),
 ):
     event = event_crud.publish_event(db, event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+    reward_crud.award_rule_reward(
+        db, user_id=current_user.id,
+        trigger=RewardTrigger.event_published,
+        source_type="event", source_id=event.id,
+        message=f"Event '{event.title}' published",
+    )
     return event
 
 
@@ -288,6 +295,12 @@ def register_for_event(
             detail="Event quiz is not published",
         )
     participant = event_crud.register_participant(db, event_id, current_user.id)
+    reward_crud.award_rule_reward(
+        db, user_id=current_user.id,
+        trigger=RewardTrigger.event_attended,
+        source_type="event", source_id=event_id,
+        message=f"Registered for event",
+    )
     return participant
 
 

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..crud import course_crud
+from ..crud import course_crud, reward_crud
 from ..database import get_db
 from ..dependencies import admin_only, content_creator_or_above, get_current_user
+from ..models.reward import RewardTrigger
 from ..models.user import User, UserRole
 from ..schemas.course import (
     CategoryResponse,
@@ -79,9 +80,16 @@ def list_courses(skip: int = 0, limit: int = 100, db: Session = Depends(get_db))
 def create_course(
     data: CourseCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(content_creator_or_above),
+    current_user: User = Depends(content_creator_or_above),
 ):
-    return course_crud.create_course(db, data)
+    course = course_crud.create_course(db, data)
+    reward_crud.award_rule_reward(
+        db, user_id=current_user.id,
+        trigger=RewardTrigger.course_created,
+        source_type="course", source_id=course.id,
+        message=f"Course '{course.title}' created",
+    )
+    return course
 
 
 @router.get("/courses/{course_id}", response_model=CourseResponse)
@@ -172,7 +180,15 @@ def update_progress(
     course = course_crud.get_course(db, course_id)
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
-    return course_crud.upsert_course_progress(db, user_id, course_id, payload.progress)
+    progress_record = course_crud.upsert_course_progress(db, user_id, course_id, payload.progress)
+    if payload.progress >= 100:
+        reward_crud.award_rule_reward(
+            db, user_id=user_id,
+            trigger=RewardTrigger.course_completed,
+            source_type="course", source_id=course_id,
+            message=f"Course '{course.title}' completed",
+        )
+    return progress_record
 
 
 # ── lessons ────────────────────────────────────────────────────────────────────
@@ -202,12 +218,18 @@ def create_lesson(
     course_id: int,
     data: LessonCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(content_creator_or_above),
+    current_user: User = Depends(content_creator_or_above),
 ):
     course = course_crud.get_course(db, course_id)
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
     lesson = course_crud.create_lesson(db, course_id, data)
+    reward_crud.award_rule_reward(
+        db, user_id=current_user.id,
+        trigger=RewardTrigger.lesson_created,
+        source_type="lesson", source_id=lesson.id,
+        message=f"Lesson '{lesson.title}' created",
+    )
     from ..crud.course_crud import _build_lesson_response
     return _build_lesson_response(lesson)
 
@@ -250,6 +272,12 @@ def complete_lesson(
     current_user: User = Depends(get_current_user),
 ):
     course_crud.mark_lesson_complete(db, current_user.id, lesson_id)
+    reward_crud.award_rule_reward(
+        db, user_id=current_user.id,
+        trigger=RewardTrigger.lesson_completed,
+        source_type="lesson", source_id=lesson_id,
+        message="Lesson completed",
+    )
 
 
 @router.patch("/lessons/{lesson_id}/complete", status_code=204,
@@ -260,6 +288,12 @@ def complete_lesson_by_id(
     current_user: User = Depends(get_current_user),
 ):
     course_crud.mark_lesson_complete(db, current_user.id, lesson_id)
+    reward_crud.award_rule_reward(
+        db, user_id=current_user.id,
+        trigger=RewardTrigger.lesson_completed,
+        source_type="lesson", source_id=lesson_id,
+        message="Lesson completed",
+    )
 
 
 # ── learning resources ─────────────────────────────────────────────────────────
@@ -286,7 +320,14 @@ def create_resource(
     db: Session = Depends(get_db),
     current_user: User = Depends(content_creator_or_above),
 ):
-    return course_crud.create_resource(db, lesson_id, data, uploaded_by=current_user.id)
+    resource = course_crud.create_resource(db, lesson_id, data, uploaded_by=current_user.id)
+    reward_crud.award_rule_reward(
+        db, user_id=current_user.id,
+        trigger=RewardTrigger.resource_uploaded,
+        source_type="resource", source_id=resource.id,
+        message="Learning resource uploaded",
+    )
+    return resource
 
 
 @router.patch("/courses/{course_id}/lessons/{lesson_id}/resources/{resource_id}",

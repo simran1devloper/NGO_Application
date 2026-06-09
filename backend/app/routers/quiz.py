@@ -5,9 +5,10 @@ import json
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from ..crud import quiz_crud
+from ..crud import quiz_crud, reward_crud
 from ..database import get_db
 from ..dependencies import content_creator_or_above, get_current_user
+from ..models.reward import RewardTrigger
 from ..models.user import User, UserRole
 from ..schemas.quiz import (
     AnswerResult,
@@ -258,6 +259,13 @@ def submit_attempt(
     if result is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
     attempt, _questions = result
+    if (attempt.score or 0) >= 60:
+        reward_crud.award_rule_reward(
+            db, user_id=current_user.id,
+            trigger=RewardTrigger.quiz_passed,
+            source_type="quiz", source_id=quiz_id,
+            message=f"Quiz passed with {attempt.score:.0f}%",
+        )
     return _build_attempt_response(attempt)
 
 

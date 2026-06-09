@@ -10,6 +10,8 @@ from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..recaptcha import verify_recaptcha
+
 logger = logging.getLogger(__name__)
 
 from ..auth0_validator import verify_auth0_token
@@ -25,10 +27,13 @@ from ..crud.auth_crud import (
     revoke_token,
     verify_password,
 )
+from ..crud import reward_crud
 from ..database import get_db
 from ..dependencies import get_current_user, require_role
 from ..google_calendar import exchange_code_for_tokens, get_authorization_url, is_calendar_authorized
+from ..models.reward import RewardTrigger
 from ..models.user import User, UserRole
+from ..permissions import parse_roles
 from ..schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -45,7 +50,10 @@ _bearer = HTTPBearer()
 
 @router.post("/register", status_code=201,
              summary="Register a new user account")
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+async def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    if payload.recaptcha_token:
+        if not await verify_recaptcha(payload.recaptcha_token):
+            raise HTTPException(status_code=400, detail="CAPTCHA verification failed. Please try again.")
     if get_user_by_email(db, payload.email):
         raise HTTPException(status_code=409, detail="Email already registered")
     user = register_user(db, payload)
@@ -64,7 +72,10 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse,
              summary="Login and receive a JWT access token")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+async def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    if payload.recaptcha_token:
+        if not await verify_recaptcha(payload.recaptcha_token):
+            raise HTTPException(status_code=400, detail="CAPTCHA verification failed. Please try again.")
     user = get_user_by_email(db, payload.email)
     if not user or not user.hashed_password:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -74,9 +85,18 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Account is inactive")
     access_status = getattr(user, "access_status", "approved") or "approved"
     token = create_access_token(user)
+
+    reward_crud.award_rule_reward(
+        db, user_id=user.id,
+        trigger=RewardTrigger.daily_login,
+        source_type="auth", source_id=user.id,
+        message="Daily login reward",
+    )
+
     return TokenResponse(
         access_token=token,
         role=user.role.value,
+        roles=[r.value for r in parse_roles(user.roles, user.role)],
         user_id=user.id,
         name=user.name,
         access_status=access_status,
@@ -212,9 +232,18 @@ def google_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Account is inactive")
 
     token = create_access_token(user)
+
+    reward_crud.award_rule_reward(
+        db, user_id=user.id,
+        trigger=RewardTrigger.daily_login,
+        source_type="auth", source_id=user.id,
+        message="Daily login reward",
+    )
+
     return TokenResponse(
         access_token=token,
         role=user.role.value,
+        roles=[r.value for r in parse_roles(user.roles, user.role)],
         user_id=user.id,
         name=user.name,
     )
@@ -256,9 +285,18 @@ def auth0_login(payload: Auth0LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Account is inactive")
 
     token = create_access_token(user)
+
+    reward_crud.award_rule_reward(
+        db, user_id=user.id,
+        trigger=RewardTrigger.daily_login,
+        source_type="auth", source_id=user.id,
+        message="Daily login reward",
+    )
+
     return TokenResponse(
         access_token=token,
         role=user.role.value,
+        roles=[r.value for r in parse_roles(user.roles, user.role)],
         user_id=user.id,
         name=user.name,
     )

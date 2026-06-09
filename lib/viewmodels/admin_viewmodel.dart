@@ -107,11 +107,53 @@ class AdminViewModel extends ChangeNotifier {
         verificationNote: verificationNote,
       );
       _pendingUsers.removeWhere((u) => u.id == userId);
-      _updateAllUser(userId, role: role, accessStatus: 'approved');
+      _updateAllUser(
+        userId,
+        role: role,
+        roles: [role],
+        accessStatus: 'approved',
+      );
       if (!_disposed) notifyListeners();
       return true;
     } on ApiException catch (e) {
       _errorMessage = 'Role assignment failed (${e.statusCode}).';
+      if (!_disposed) notifyListeners();
+      return false;
+    } catch (_) {
+      _errorMessage = 'Connection failed.';
+      if (!_disposed) notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> setRoles({
+    required int userId,
+    required List<String> roles,
+    String? verificationNote,
+  }) async {
+    try {
+      final json = await AdminRepository.setRoles(
+        userId: userId,
+        roles: roles,
+        accessStatus: 'approved',
+        verificationNote: verificationNote,
+      );
+      final primaryRole = (json['role'] ?? roles.first) as String;
+      final savedRoles = (json['roles'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList() ??
+          roles;
+      _pendingUsers.removeWhere((u) => u.id == userId);
+      _updateAllUser(
+        userId,
+        role: primaryRole,
+        roles: savedRoles,
+        accessStatus: 'approved',
+      );
+      if (!_disposed) notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      _errorMessage = 'Role update failed (${e.statusCode}).';
       if (!_disposed) notifyListeners();
       return false;
     } catch (_) {
@@ -220,13 +262,69 @@ class AdminViewModel extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ── Bulk operations ──────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> bulkApprove({
+    required List<int> userIds,
+    required String role,
+  }) async {
+    try {
+      final result = await AdminRepository.bulkApprove(
+        userIds: userIds,
+        role: role,
+      );
+      final approved = (result['approved'] as List).cast<int>();
+      for (final id in approved) {
+        _pendingUsers.removeWhere((u) => u.id == id);
+        _updateAllUser(id, role: role, roles: [role], accessStatus: 'approved');
+      }
+      if (!_disposed) notifyListeners();
+      return result;
+    } on ApiException catch (e) {
+      _errorMessage = 'Bulk approve failed (${e.statusCode}).';
+      if (!_disposed) notifyListeners();
+      return {};
+    } catch (_) {
+      _errorMessage = 'Connection failed.';
+      if (!_disposed) notifyListeners();
+      return {};
+    }
+  }
+
+  Future<Map<String, dynamic>> bulkDelete(List<int> userIds) async {
+    try {
+      final result = await AdminRepository.bulkDelete(userIds);
+      final deleted = (result['deleted'] as List).cast<int>();
+      for (final id in deleted) {
+        _allUsers.removeWhere((u) => u.id == id);
+        _pendingUsers.removeWhere((u) => u.id == id);
+      }
+      if (!_disposed) notifyListeners();
+      return result;
+    } on ApiException catch (e) {
+      _errorMessage = 'Bulk delete failed (${e.statusCode}).';
+      if (!_disposed) notifyListeners();
+      return {};
+    } catch (_) {
+      _errorMessage = 'Connection failed.';
+      if (!_disposed) notifyListeners();
+      return {};
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  void _updateAllUser(int userId, {String? role, String? accessStatus}) {
+  void _updateAllUser(
+    int userId, {
+    String? role,
+    List<String>? roles,
+    String? accessStatus,
+  }) {
     final idx = _allUsers.indexWhere((u) => u.id == userId);
     if (idx != -1) {
       _allUsers[idx] = _allUsers[idx].copyWith(
         role: role,
+        roles: roles,
         accessStatus: accessStatus,
       );
     }

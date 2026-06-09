@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../models/auth_models.dart';
 import '../repositories/api_client.dart';
 import '../repositories/auth_repository.dart';
+import '../repositories/captcha_service.dart';
 import '../services/screen_security.dart';
 import 'view_state.dart';
 
@@ -34,8 +35,14 @@ class AuthViewModel extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      final response = await AuthRepository.login(email.trim(), password);
+      final captchaToken = await getCaptchaToken('login');
+      final response = await AuthRepository.login(
+        email.trim(),
+        password,
+        recaptchaToken: captchaToken,
+      );
       final role   = UserRole.fromString(response.role);
+      final allRoles = response.roles.map(UserRole.fromString).toList();
       final status = response.accessStatus != null
           ? AccessStatus.fromString(response.accessStatus!)
           : AccessStatus.approved;
@@ -45,6 +52,7 @@ class AuthViewModel extends ChangeNotifier {
         role,
         name: response.name,
         status: status,
+        allRoles: allRoles,
       );
       _state = ViewState.idle;
       if (!_disposed) notifyListeners();
@@ -77,6 +85,7 @@ class AuthViewModel extends ChangeNotifier {
         return null;
       }
       final role   = UserRole.fromString(response.role);
+      final allRoles = response.roles.map(UserRole.fromString).toList();
       final status = response.accessStatus != null
           ? AccessStatus.fromString(response.accessStatus!)
           : AccessStatus.approved;
@@ -86,6 +95,7 @@ class AuthViewModel extends ChangeNotifier {
         role,
         name: response.name,
         status: status,
+        allRoles: allRoles,
       );
       _state = ViewState.idle;
       if (!_disposed) notifyListeners();
@@ -125,6 +135,7 @@ class AuthViewModel extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
+      final captchaToken = await getCaptchaToken('register');
       final response = await AuthRepository.registerStudent(
         name: name,
         email: email,
@@ -136,8 +147,10 @@ class AuthViewModel extends ChangeNotifier {
         parentEmail: parentEmail,
         phone: phone,
         requestedRole: requestedRole,
+        recaptchaToken: captchaToken,
       );
       final role   = UserRole.fromString(response.role);
+      final allRoles = response.roles.map(UserRole.fromString).toList();
       final status = response.accessStatus != null
           ? AccessStatus.fromString(response.accessStatus!)
           : AccessStatus.pendingVerification;
@@ -147,6 +160,7 @@ class AuthViewModel extends ChangeNotifier {
         role,
         name: response.name,
         status: status,
+        allRoles: allRoles,
       );
       _state = ViewState.idle;
       if (!_disposed) notifyListeners();

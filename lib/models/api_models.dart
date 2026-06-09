@@ -17,6 +17,7 @@ class AppUser {
     this.location,
     this.phone,
     this.role,
+    this.roles = const [],
     this.accessStatus,
     this.requestedRole,
     this.verificationNote,
@@ -36,6 +37,7 @@ class AppUser {
   final String? location;
   final String? phone;
   final String? role;
+  final List<String> roles;
   final String? accessStatus;
   final String? requestedRole;
   final String? verificationNote;
@@ -52,6 +54,7 @@ class AppUser {
     String? location,
     String? phone,
     String? role,
+    List<String>? roles,
     String? accessStatus,
     String? requestedRole,
     String? verificationNote,
@@ -70,6 +73,7 @@ class AppUser {
     location: location ?? this.location,
     phone: phone ?? this.phone,
     role: role ?? this.role,
+    roles: roles ?? this.roles,
     accessStatus: accessStatus ?? this.accessStatus,
     requestedRole: requestedRole ?? this.requestedRole,
     verificationNote: verificationNote ?? this.verificationNote,
@@ -94,6 +98,12 @@ class AppUser {
     location: j['location'] as String?,
     phone: j['phone'] as String?,
     role: j['role'] as String?,
+    roles: (j['roles'] as List<dynamic>?)
+            ?.whereType<String>()
+            .toList() ??
+        [
+          if (j['role'] is String) j['role'] as String,
+        ],
     accessStatus: j['access_status'] as String?,
     requestedRole: j['requested_role'] as String?,
     verificationNote: j['verification_note'] as String?,
@@ -150,6 +160,7 @@ class AdminUserItem {
     required this.name,
     required this.email,
     required this.role,
+    required this.roles,
     required this.accessStatus,
     required this.createdAt,
     this.requestedRole,
@@ -164,6 +175,7 @@ class AdminUserItem {
   final String name;
   final String email;
   final String role;
+  final List<String> roles;
   final String accessStatus;
   final DateTime createdAt;
   final String? requestedRole;
@@ -178,11 +190,16 @@ class AdminUserItem {
   bool get isApproved => accessStatus == 'approved';
   bool get isRejected => accessStatus == 'rejected';
 
-  AdminUserItem copyWith({String? role, String? accessStatus}) => AdminUserItem(
+  AdminUserItem copyWith({
+    String? role,
+    List<String>? roles,
+    String? accessStatus,
+  }) => AdminUserItem(
     id: id,
     name: name,
     email: email,
     role: role ?? this.role,
+    roles: roles ?? this.roles,
     accessStatus: accessStatus ?? this.accessStatus,
     createdAt: createdAt,
     requestedRole: requestedRole,
@@ -198,6 +215,10 @@ class AdminUserItem {
     name: j['name'] as String,
     email: j['email'] as String,
     role: (j['role'] ?? 'student') as String,
+    roles: (j['roles'] as List<dynamic>?)
+            ?.whereType<String>()
+            .toList() ??
+        [(j['role'] ?? 'student') as String],
     accessStatus: (j['access_status'] ?? 'pending_verification') as String,
     createdAt: DateTime.parse(j['created_at'] as String),
     requestedRole: j['requested_role'] as String?,

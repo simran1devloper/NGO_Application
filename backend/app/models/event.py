@@ -81,11 +81,16 @@ class Event(Base):
     end_date               = Column(DateTime, nullable=True)
     result_date            = Column(DateTime, nullable=True)
     counselling_date       = Column(DateTime, nullable=True)
+    # ── maker-checker approval fields ─────────────────────────────────────────
+    approved_by      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at      = Column(DateTime, nullable=True)
+    rejection_reason = Column(String, nullable=True)
     created_at             = Column(DateTime, server_default=func.now())
     updated_at             = Column(DateTime, server_default=func.now())
 
     # Relationships
     creator      = relationship("User", foreign_keys=[created_by])
+    approver     = relationship("User", foreign_keys=[approved_by])
     participants = relationship(
         "EventParticipant", back_populates="event",
         cascade="all, delete-orphan",

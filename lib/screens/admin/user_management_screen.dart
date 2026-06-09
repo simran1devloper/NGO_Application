@@ -20,6 +20,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   String _filterRole   = '';
   String _filterStatus = '';
   bool   _loading      = false;
+  final Set<int> _selected = {};
+  bool _selectionMode = false;
 
   @override
   void initState() {
@@ -43,6 +45,40 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  void _toggleSelection(int userId) {
+    setState(() {
+      if (_selected.contains(userId)) {
+        _selected.remove(userId);
+        if (_selected.isEmpty) _selectionMode = false;
+      } else {
+        _selected.add(userId);
+        _selectionMode = true;
+      }
+    });
+  }
+
+  void _clearSelection() => setState(() { _selected.clear(); _selectionMode = false; });
+
+  Future<void> _bulkDelete() async {
+    if (_selected.isEmpty) return;
+    final confirmed = await _confirm(
+      title: 'Delete ${_selected.length} user(s)?',
+      body: 'This cannot be undone. All selected users will be permanently removed.',
+      confirmLabel: 'Delete All',
+      confirmColor: AppColors.softRed,
+    );
+    if (!confirmed || !mounted) return;
+    final result = await widget.vm.bulkDelete(_selected.toList());
+    _clearSelection();
+    if (mounted) {
+      final deleted = (result['deleted'] as List?)?.length ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$deleted user(s) deleted.'),
+        backgroundColor: AppColors.softRed,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -50,22 +86,36 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.background,
         elevation: 0,
-        leading: const BackButton(color: AppColors.ink),
-        title: const Text(
-          'User Management',
-          style: TextStyle(
-            color: AppColors.ink,
-            fontWeight: FontWeight.w800,
-            fontSize: 18,
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: AppColors.ink),
-            tooltip: 'Refresh',
-            onPressed: _fetch,
-          ),
-        ],
+        leading: _selectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close, color: AppColors.ink),
+                onPressed: _clearSelection,
+              )
+            : const BackButton(color: AppColors.ink),
+        title: _selectionMode
+            ? Text('${_selected.length} selected',
+                style: const TextStyle(
+                    color: AppColors.ink, fontWeight: FontWeight.w800, fontSize: 18))
+            : const Text('User Management',
+                style: TextStyle(
+                    color: AppColors.ink, fontWeight: FontWeight.w800, fontSize: 18)),
+        actions: _selectionMode
+            ? [
+                FilledButton.icon(
+                  onPressed: _bulkDelete,
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                  label: const Text('Delete'),
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.softRed),
+                ),
+                const SizedBox(width: 8),
+              ]
+            : [
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded, color: AppColors.ink),
+                  tooltip: 'Refresh',
+                  onPressed: _fetch,
+                ),
+              ],
       ),
       body: Column(
         children: [
@@ -125,6 +175,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       _Chip(label: 'Creators',   color: AppColors.accent,
                             selected: _filterRole == 'content_creator',
                             onTap: () { setState(() { _filterRole = 'content_creator'; _filterStatus = ''; }); _fetch(); }),
+                      _Chip(label: 'Mediators',  color: const Color(0xFF009688),
+                            selected: _filterRole == 'mediator',
+                            onTap: () { setState(() { _filterRole = 'mediator'; _filterStatus = ''; }); _fetch(); }),
+                      _Chip(label: 'Event Mgrs', color: const Color(0xFFE91E8C),
+                            selected: _filterRole == 'event_manager',
+                            onTap: () { setState(() { _filterRole = 'event_manager'; _filterStatus = ''; }); _fetch(); }),
+                      _Chip(label: 'Support',    color: const Color(0xFF795548),
+                            selected: _filterRole == 'support_staff',
+                            onTap: () { setState(() { _filterRole = 'support_staff'; _filterStatus = ''; }); _fetch(); }),
                       _Chip(label: 'Admins',     color: const Color(0xFF6B48FF),
                             selected: _filterRole == 'admin',
                             onTap: () { setState(() { _filterRole = 'admin'; _filterStatus = ''; }); _fetch(); }),
@@ -149,11 +208,14 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       }
                       return _UsersTable(
                         users: users,
-                        onView:    (u) => _openDetail(u),
-                        onBlock:   (u) => _block(u),
-                        onUnblock: (u) => _unblock(u),
-                        onDelete:  (u) => _delete(u),
-                        onAssign:  (u) => _openDetail(u),
+                        selectedIds:   _selected,
+                        selectionMode: _selectionMode,
+                        onView:       (u) => _openDetail(u),
+                        onBlock:      (u) => _block(u),
+                        onUnblock:    (u) => _unblock(u),
+                        onDelete:     (u) => _delete(u),
+                        onAssign:     (u) => _openDetail(u),
+                        onToggleSelect: (u) => _toggleSelection(u.id),
                       );
                     },
                   ),
@@ -250,14 +312,20 @@ class _UsersTable extends StatelessWidget {
     required this.onUnblock,
     required this.onDelete,
     required this.onAssign,
+    required this.onToggleSelect,
+    required this.selectedIds,
+    required this.selectionMode,
   });
 
-  final List<AdminUserItem>       users;
+  final List<AdminUserItem>          users;
   final void Function(AdminUserItem) onView;
   final void Function(AdminUserItem) onBlock;
   final void Function(AdminUserItem) onUnblock;
   final void Function(AdminUserItem) onDelete;
   final void Function(AdminUserItem) onAssign;
+  final void Function(AdminUserItem) onToggleSelect;
+  final Set<int>                     selectedIds;
+  final bool                         selectionMode;
 
   @override
   Widget build(BuildContext context) {
@@ -292,11 +360,14 @@ class _UsersTable extends StatelessWidget {
             itemBuilder: (_, i) => _UserRow(
               index: i + 1,
               user: users[i],
-              onView:    () => onView(users[i]),
-              onBlock:   () => onBlock(users[i]),
-              onUnblock: () => onUnblock(users[i]),
-              onDelete:  () => onDelete(users[i]),
-              onAssign:  () => onAssign(users[i]),
+              isSelected:    selectedIds.contains(users[i].id),
+              selectionMode: selectionMode,
+              onView:        () => onView(users[i]),
+              onBlock:       () => onBlock(users[i]),
+              onUnblock:     () => onUnblock(users[i]),
+              onDelete:      () => onDelete(users[i]),
+              onAssign:      () => onAssign(users[i]),
+              onLongPress:   () => onToggleSelect(users[i]),
             ),
           ),
         ],
@@ -338,6 +409,9 @@ class _UserRow extends StatelessWidget {
     required this.onUnblock,
     required this.onDelete,
     required this.onAssign,
+    this.isSelected = false,
+    this.selectionMode = false,
+    this.onLongPress,
   });
 
   final int           index;
@@ -347,6 +421,9 @@ class _UserRow extends StatelessWidget {
   final VoidCallback  onUnblock;
   final VoidCallback  onDelete;
   final VoidCallback  onAssign;
+  final bool          isSelected;
+  final bool          selectionMode;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -356,24 +433,35 @@ class _UserRow extends StatelessWidget {
     final approvalLabel = _approvalLabel(user.accessStatus);
 
     return InkWell(
-      onTap: onView,
+      onTap: selectionMode ? onLongPress : onView,
+      onLongPress: onLongPress,
       child: Container(
-        color: Colors.white,
+        color: isSelected
+            ? AppColors.primary.withValues(alpha: 0.07)
+            : Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // ── # ──────────────────────────────────────────────────────
+            // ── # / checkbox ───────────────────────────────────────────
             SizedBox(
               width: 36,
-              child: Text(
-                '$index',
-                style: const TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              child: selectionMode
+                  ? Icon(
+                      isSelected
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      size: 18,
+                      color: isSelected ? AppColors.primary : AppColors.muted,
+                    )
+                  : Text(
+                      '$index',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
 
             // ── User (avatar + name + email) ───────────────────────────
@@ -427,7 +515,16 @@ class _UserRow extends StatelessWidget {
             // ── Role ───────────────────────────────────────────────────
             Expanded(
               flex: 2,
-              child: _RoleBadge(role: user.role),
+              child: Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: [
+                  for (final role in user.roles.isNotEmpty
+                      ? user.roles
+                      : [user.role])
+                    _RoleBadge(role: role),
+                ],
+              ),
             ),
 
             // ── Location ───────────────────────────────────────────────
@@ -629,6 +726,9 @@ class _RoleBadge extends StatelessWidget {
     'student':         (AppColors.primary,        'Student'),
     'mentor':          (AppColors.secondary,       'Counsellor'),
     'content_creator': (AppColors.accent,          'Creator'),
+    'mediator':        (const Color(0xFF009688),   'Mediator'),
+    'event_manager':   (const Color(0xFFE91E8C),   'Event Mgr'),
+    'support_staff':   (const Color(0xFF795548),   'Support'),
     'admin':           (const Color(0xFF6B48FF),   'Admin'),
     'super_admin':     (const Color(0xFF6B48FF),   'Super Admin'),
     'guest':           (AppColors.muted,           'Guest'),

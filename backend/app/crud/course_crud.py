@@ -293,6 +293,7 @@ def mark_lesson_complete(db: Session, user_id: int, lesson_id: int) -> None:
         )
         .first()
     )
+    was_completed = bool(record and record.completed)
     if record is None:
         record = UserLessonProgress(
             user_id=user_id,
@@ -309,6 +310,23 @@ def mark_lesson_complete(db: Session, user_id: int, lesson_id: int) -> None:
     # Recompute course progress automatically
     lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
     if lesson:
+        if not was_completed:
+            from . import reward_crud
+            from ..models.reward import RewardTrigger
+
+            trigger = (
+                RewardTrigger.video_completed
+                if lesson.content_type == "video"
+                else RewardTrigger.lesson_completed
+            )
+            reward_crud.award_rule_reward(
+                db,
+                user_id=user_id,
+                trigger=trigger,
+                source_type="lesson",
+                source_id=lesson.id,
+                message=lesson.title,
+            )
         _recompute_course_progress(db, user_id, lesson.course_id)
 
 
@@ -378,4 +396,16 @@ def _recompute_course_progress(db: Session, user_id: int, course_id: int) -> Non
         )
         .count()
     )
-    upsert_course_progress(db, user_id, course_id, completed_count / total)
+    progress = completed_count / total
+    record = upsert_course_progress(db, user_id, course_id, progress)
+    if record.completed:
+        from . import reward_crud
+        from ..models.reward import RewardTrigger
+
+        reward_crud.award_rule_reward(
+            db,
+            user_id=user_id,
+            trigger=RewardTrigger.course_completed,
+            source_type="course",
+            source_id=course_id,
+        )

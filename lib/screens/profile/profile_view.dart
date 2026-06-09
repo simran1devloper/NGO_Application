@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import '../../app_state.dart';
 import '../../core/colors.dart';
 import '../../models/api_models.dart';
+import '../../models/auth_models.dart';
+import '../../models/reward_models.dart';
 import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/profile_viewmodel.dart';
 import '../../viewmodels/view_state.dart';
 import '../../widgets/app_scroll_view.dart';
+import 'reward_wallet_screen.dart';
 
 class ProfileView extends StatefulWidget {
   const ProfileView({super.key});
@@ -158,6 +161,11 @@ class _ProfileViewState extends State<ProfileView> {
               badgeCount: _vm.badges.length,
               onEditProfile: _openEditProfile,
             ),
+            _RewardWalletCard(
+              summary: _vm.rewards,
+              tasks: _vm.rewardTasks,
+              onAdvanceTask: _vm.advanceRewardTask,
+            ),
             _QuickActionBar(
               actions: [
                 _QuickAction(
@@ -233,6 +241,17 @@ class _ProfileViewState extends State<ProfileView> {
                 ),
               ],
             ),
+            if (AppState.roles.length > 1) ...[
+              const _SectionTitle('Switch Role'),
+              _RoleSwitcherCard(
+                roles: AppState.roles,
+                activeRole: AppState.activeRole,
+                onSwitch: (role) {
+                  AppState.setActiveRole(role);
+                  Navigator.of(context).pushReplacementNamed('/home');
+                },
+              ),
+            ],
             const _SectionTitle('Preferences & Security'),
             _InfoCard(
               rows: [
@@ -1336,6 +1355,403 @@ class _ChangePasswordSheet extends StatefulWidget {
   @override
   State<_ChangePasswordSheet> createState() => _ChangePasswordSheetState();
 }
+
+// ── Role Switcher ─────────────────────────────────────────────────────────────
+
+class _RoleSwitcherCard extends StatelessWidget {
+  const _RoleSwitcherCard({
+    required this.roles,
+    required this.activeRole,
+    required this.onSwitch,
+  });
+
+  final List<UserRole> roles;
+  final UserRole activeRole;
+  final ValueChanged<UserRole> onSwitch;
+
+  Color _roleColor(UserRole r) => switch (r) {
+        UserRole.superAdmin     => const Color(0xFF6B48FF),
+        UserRole.admin          => const Color(0xFF6B48FF),
+        UserRole.mediator       => const Color(0xFF009688),
+        UserRole.mentor         => AppColors.secondary,
+        UserRole.contentCreator => AppColors.accent,
+        UserRole.student        => AppColors.primary,
+        _                       => AppColors.muted,
+      };
+
+  IconData _roleIcon(UserRole r) => switch (r) {
+        UserRole.superAdmin     => Icons.verified_rounded,
+        UserRole.admin          => Icons.admin_panel_settings_rounded,
+        UserRole.mediator       => Icons.shield_rounded,
+        UserRole.mentor         => Icons.psychology_rounded,
+        UserRole.contentCreator => Icons.edit_rounded,
+        UserRole.student        => Icons.school_rounded,
+        _                       => Icons.person_rounded,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.muted.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'You have ${roles.length} roles. Tap one to switch your view.',
+            style: const TextStyle(
+              color: AppColors.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final r in roles)
+                _RoleChip(
+                  role: r,
+                  isActive: r == activeRole,
+                  color: _roleColor(r),
+                  icon: _roleIcon(r),
+                  onTap: r == activeRole ? null : () => onSwitch(r),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleChip extends StatelessWidget {
+  const _RoleChip({
+    required this.role,
+    required this.isActive,
+    required this.color,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final UserRole role;
+  final bool isActive;
+  final Color color;
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: isActive ? color.withValues(alpha: 0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: isActive ? color : AppColors.muted.withValues(alpha: 0.28),
+            width: isActive ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: isActive ? color : AppColors.muted),
+            const SizedBox(width: 6),
+            Text(
+              role.displayName,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                color: isActive ? color : AppColors.muted,
+              ),
+            ),
+            if (isActive) ...[
+              const SizedBox(width: 5),
+              Icon(Icons.check_circle_rounded, size: 13, color: color),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RewardWalletCard extends StatelessWidget {
+  const _RewardWalletCard({
+    required this.summary,
+    required this.tasks,
+    required this.onAdvanceTask,
+  });
+
+  final RewardSummary? summary;
+  final List<RewardTask> tasks;
+  final Future<void> Function(int taskId) onAdvanceTask;
+
+  void _openWallet(BuildContext context) {
+    if (summary == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RewardWalletScreen(summary: summary!, tasks: tasks),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rewards = summary?.rewards ?? const <RewardTransaction>[];
+    final activeTasks = tasks.where((task) => !task.isCompleted).take(3).toList();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.card_giftcard_rounded, color: AppColors.accent),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Reward Wallet',
+                  style: TextStyle(
+                    color: AppColors.ink,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              _RewardPill(
+                icon: Icons.stars_rounded,
+                label: '${summary?.totalPoints ?? 0} pts',
+                color: AppColors.accent,
+              ),
+              const SizedBox(width: 6),
+              _RewardPill(
+                icon: Icons.bolt_rounded,
+                label: '${summary?.totalXpFromRewards ?? 0} XP',
+                color: AppColors.secondary,
+              ),
+            ],
+          ),
+          if (activeTasks.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            for (final task in activeTasks)
+              _RewardTaskRow(task: task, onAdvance: () => onAdvanceTask(task.id)),
+          ],
+          if (rewards.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            for (final reward in rewards.take(3)) _RewardHistoryRow(reward: reward),
+          ],
+          if (activeTasks.isEmpty && rewards.isEmpty) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Complete lessons, videos, courses, or assigned tasks to collect rewards.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 14),
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _openWallet(context),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 15),
+                  label: const Text('View All'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: BorderSide(color: AppColors.primary.withValues(alpha: 0.4)),
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () {
+                    if (summary == null) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => RewardWalletScreen(
+                          summary: summary!,
+                          tasks: tasks,
+                          initialTab: 2,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.card_giftcard_rounded, size: 15),
+                  label: const Text('Send Gift'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.accent,
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardPill extends StatelessWidget {
+  const _RewardPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardTaskRow extends StatelessWidget {
+  const _RewardTaskRow({required this.task, required this.onAdvance});
+
+  final RewardTask task;
+  final VoidCallback onAdvance;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = task.progress.clamp(0.0, 1.0);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  task.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.ink,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 6,
+                    color: AppColors.secondary,
+                    backgroundColor: AppColors.secondary.withValues(alpha: 0.12),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${task.currentCount}/${task.targetCount} • +${task.rewardPoints} pts • +${task.rewardXp} XP',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton.filledTonal(
+            onPressed: onAdvance,
+            tooltip: 'Add progress',
+            icon: const Icon(Icons.add_task_rounded, size: 18),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardHistoryRow extends StatelessWidget {
+  const _RewardHistoryRow({required this.reward});
+
+  final RewardTransaction reward;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.workspace_premium_rounded, size: 16, color: AppColors.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              reward.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Text(
+            '+${reward.points} pts',
+            style: const TextStyle(
+              color: AppColors.accent,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Change Password ───────────────────────────────────────────────────────────
 
 class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
   final _formKey = GlobalKey<FormState>();

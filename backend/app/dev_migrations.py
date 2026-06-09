@@ -31,6 +31,7 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 "date_of_birth": "DATE",
                 "reset_token": "VARCHAR",
                 "reset_token_expires": "DATETIME",
+                "roles": "TEXT",
             }
             for column, ddl_type in user_additions.items():
                 if column not in user_columns:
@@ -253,6 +254,50 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             connection.execute(text("CREATE INDEX ix_mentor_profiles_id ON mentor_profiles (id)"))
             connection.execute(text("CREATE UNIQUE INDEX ix_mentor_profiles_user_id ON mentor_profiles (user_id)"))
 
+        # ── comment moderation columns ────────────────────────────────────────
+        if "comments" in inspector.get_table_names():
+            comment_cols = {col["name"] for col in inspector.get_columns("comments")}
+            comment_additions = {
+                "flag_count":    "INTEGER NOT NULL DEFAULT 0",
+                "is_flagged":    "BOOLEAN NOT NULL DEFAULT 0",
+                "is_hidden":     "BOOLEAN NOT NULL DEFAULT 0",
+                "hidden_by":     "INTEGER",
+                "hidden_reason": "TEXT",
+            }
+            for column, ddl_type in comment_additions.items():
+                if column not in comment_cols:
+                    connection.execute(
+                        text(f"ALTER TABLE comments ADD COLUMN {column} {ddl_type}")
+                    )
+
+        # ── creator_post maker-checker columns ────────────────────────────────
+        if "creator_posts" in inspector.get_table_names():
+            post_cols = {col["name"] for col in inspector.get_columns("creator_posts")}
+            post_additions = {
+                "approved_by":      "INTEGER",
+                "approved_at":      "DATETIME",
+                "rejection_reason": "VARCHAR",
+            }
+            for column, ddl_type in post_additions.items():
+                if column not in post_cols:
+                    connection.execute(
+                        text(f"ALTER TABLE creator_posts ADD COLUMN {column} {ddl_type}")
+                    )
+
+        # ── event maker-checker columns ───────────────────────────────────────
+        if "events" in inspector.get_table_names():
+            ev_cols = {col["name"] for col in inspector.get_columns("events")}
+            ev_additions = {
+                "approved_by":      "INTEGER",
+                "approved_at":      "DATETIME",
+                "rejection_reason": "VARCHAR",
+            }
+            for column, ddl_type in ev_additions.items():
+                if column not in ev_cols:
+                    connection.execute(
+                        text(f"ALTER TABLE events ADD COLUMN {column} {ddl_type}")
+                    )
+
         # counselling_notifications table
         if "counselling_notifications" not in inspector.get_table_names():
             connection.execute(text("""
@@ -269,3 +314,99 @@ def ensure_sqlite_schema(engine: Engine) -> None:
                 )
             """))
             connection.execute(text("CREATE INDEX ix_counselling_notifications_id ON counselling_notifications (id)"))
+
+        if "reward_transactions" not in inspector.get_table_names():
+            connection.execute(text("""
+                CREATE TABLE reward_transactions (
+                    id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    actor_id INTEGER,
+                    points INTEGER NOT NULL,
+                    xp INTEGER NOT NULL DEFAULT 0,
+                    trigger VARCHAR NOT NULL,
+                    title VARCHAR NOT NULL,
+                    message TEXT,
+                    source_type VARCHAR,
+                    source_id INTEGER,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(user_id) REFERENCES users (id),
+                    FOREIGN KEY(actor_id) REFERENCES users (id)
+                )
+            """))
+            connection.execute(text("CREATE INDEX ix_reward_transactions_id ON reward_transactions (id)"))
+            connection.execute(text("CREATE INDEX ix_reward_transactions_user_id ON reward_transactions (user_id)"))
+
+        if "reward_rules" not in inspector.get_table_names():
+            connection.execute(text("""
+                CREATE TABLE reward_rules (
+                    id INTEGER NOT NULL,
+                    role VARCHAR NOT NULL DEFAULT 'student',
+                    trigger VARCHAR NOT NULL,
+                    points INTEGER NOT NULL DEFAULT 0,
+                    xp INTEGER NOT NULL DEFAULT 0,
+                    title VARCHAR NOT NULL,
+                    description TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id)
+                )
+            """))
+            connection.execute(text("CREATE INDEX ix_reward_rules_id ON reward_rules (id)"))
+
+        if "reward_tasks" not in inspector.get_table_names():
+            connection.execute(text("""
+                CREATE TABLE reward_tasks (
+                    id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    created_by INTEGER,
+                    title VARCHAR NOT NULL,
+                    description TEXT,
+                    target_count INTEGER NOT NULL DEFAULT 1,
+                    current_count INTEGER NOT NULL DEFAULT 0,
+                    reward_points INTEGER NOT NULL DEFAULT 0,
+                    reward_xp INTEGER NOT NULL DEFAULT 0,
+                    status VARCHAR NOT NULL DEFAULT 'active',
+                    due_at DATETIME,
+                    completed_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(user_id) REFERENCES users (id),
+                    FOREIGN KEY(created_by) REFERENCES users (id)
+                )
+            """))
+            connection.execute(text("CREATE INDEX ix_reward_tasks_id ON reward_tasks (id)"))
+            connection.execute(text("CREATE INDEX ix_reward_tasks_user_id ON reward_tasks (user_id)"))
+
+        if "user_streaks" not in inspector.get_table_names():
+            connection.execute(text("""
+                CREATE TABLE user_streaks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL UNIQUE,
+                    current_streak INTEGER NOT NULL DEFAULT 1,
+                    longest_streak INTEGER NOT NULL DEFAULT 1,
+                    last_activity_date DATE,
+                    total_active_days INTEGER NOT NULL DEFAULT 1,
+                    FOREIGN KEY(user_id) REFERENCES users (id)
+                )
+            """))
+            connection.execute(text("CREATE INDEX ix_user_streaks_id ON user_streaks (id)"))
+            connection.execute(text("CREATE UNIQUE INDEX ix_user_streaks_user_id ON user_streaks (user_id)"))
+
+        if "user_milestones" not in inspector.get_table_names():
+            connection.execute(text("""
+                CREATE TABLE user_milestones (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    milestone_key VARCHAR NOT NULL,
+                    title VARCHAR NOT NULL,
+                    description TEXT,
+                    points INTEGER NOT NULL DEFAULT 0,
+                    xp INTEGER NOT NULL DEFAULT 0,
+                    achieved_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
+                    FOREIGN KEY(user_id) REFERENCES users (id),
+                    CONSTRAINT uq_user_milestone UNIQUE (user_id, milestone_key)
+                )
+            """))
+            connection.execute(text("CREATE INDEX ix_user_milestones_id ON user_milestones (id)"))
+            connection.execute(text("CREATE INDEX ix_user_milestones_user_id ON user_milestones (user_id)"))

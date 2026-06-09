@@ -83,6 +83,23 @@ class AdminRepository {
     }) as Map<String, dynamic>;
   }
 
+  /// PATCH /admin/users/{id}/set-roles
+  /// Saves every feature/admin role a user holds. The backend computes the
+  /// primary role from this list.
+  static Future<Map<String, dynamic>> setRoles({
+    required int userId,
+    required List<String> roles,
+    String accessStatus = 'approved',
+    String? verificationNote,
+  }) async {
+    return await ApiClient.patch('/admin/users/$userId/set-roles', {
+      'roles': roles,
+      'access_status': accessStatus,
+      if (verificationNote != null && verificationNote.isNotEmpty)
+        'verification_note': verificationNote,
+    }) as Map<String, dynamic>;
+  }
+
   /// PATCH /admin/users/{id}/reject
   static Future<void> rejectUser(int userId, {String? reason}) async {
     await ApiClient.patch('/admin/users/$userId/reject', {
@@ -114,6 +131,30 @@ class AdminRepository {
 
   static Future<void> markAllNotificationsRead() async {
     await ApiClient.patch('/admin/notifications/read-all', {});
+  }
+
+  // ── Bulk operations ───────────────────────────────────────────────────────
+
+  /// POST /admin/users/bulk-approve
+  static Future<Map<String, dynamic>> bulkApprove({
+    required List<int> userIds,
+    required String role,
+    String accessStatus = 'approved',
+    String? verificationNote,
+  }) async {
+    return await ApiClient.post('/admin/users/bulk-approve', {
+      'user_ids': userIds,
+      'role': role,
+      'access_status': accessStatus,
+      if (verificationNote != null && verificationNote.isNotEmpty)
+        'verification_note': verificationNote,
+    }) as Map<String, dynamic>;
+  }
+
+  /// POST /admin/users/bulk-delete
+  static Future<Map<String, dynamic>> bulkDelete(List<int> userIds) async {
+    return await ApiClient.post('/admin/users/bulk-delete', {'user_ids': userIds})
+        as Map<String, dynamic>;
   }
 
   // ── User detail ───────────────────────────────────────────────────────────

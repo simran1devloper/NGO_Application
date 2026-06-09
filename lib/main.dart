@@ -13,6 +13,7 @@ import 'screens/auth/pending_approval_screen.dart';
 import 'screens/auth/rejected_screen.dart';
 import 'screens/auth/student_register_screen.dart';
 import 'screens/creator/content_creator_shell.dart';
+import 'screens/mediator/mediator_shell.dart';
 import 'screens/events/events_view.dart';
 import 'screens/events/student/event_detail_screen.dart';
 import 'screens/home/home_view.dart';
@@ -89,9 +90,11 @@ class CareSkillApp extends StatelessWidget {
       initialRoute: _resolveInitialRoute(),
       routes: {
         '/login': (_) => const AuthPage(),
-        '/home': (_) => AppState.role.isContentCreator
-            ? const ContentCreatorShell()
-            : const AppShell(),
+        '/home': (_) => switch (AppState.activeRole) {
+              UserRole.contentCreator => const ContentCreatorShell(),
+              UserRole.mediator       => const MediatorShell(),
+              _                      => const AppShell(),
+            },
         '/register/student': (_) => const StudentRegisterScreen(),
         '/pending-approval': (_) => const PendingApprovalScreen(),
         '/rejected': (_) => const RejectedScreen(),

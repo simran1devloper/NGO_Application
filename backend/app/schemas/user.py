@@ -1,7 +1,8 @@
+import json
 from datetime import date, datetime
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from ..models.user import UserRole
 
@@ -50,6 +51,7 @@ class UserResponse(BaseModel):
     level: int
     xp: int
     role: str = "student"
+    roles: list[str] = []
     access_status: str = "pending_verification"
     is_active: bool = True
     parent_email: Optional[str] = None
@@ -62,6 +64,32 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_roles(cls, data: Any) -> Any:
+        if hasattr(data, "__dict__"):
+            raw = getattr(data, "roles", None)
+            role = getattr(data, "role", None)
+        elif isinstance(data, dict):
+            raw = data.get("roles")
+            role = data.get("role")
+        else:
+            return data
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except (ValueError, TypeError):
+                parsed = [role.value if hasattr(role, "value") else str(role)] if role else []
+        elif isinstance(raw, list):
+            parsed = raw
+        else:
+            parsed = [role.value if hasattr(role, "value") else str(role)] if role else []
+        if isinstance(data, dict):
+            data["roles"] = parsed
+        else:
+            object.__setattr__(data, "roles", parsed) if hasattr(data, "__dict__") else None
+        return data
 
 
 class UserStats(BaseModel):

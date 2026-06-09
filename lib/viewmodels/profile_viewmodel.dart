@@ -2,7 +2,9 @@ import 'package:flutter/foundation.dart';
 
 import '../app_state.dart';
 import '../models/api_models.dart';
+import '../models/reward_models.dart';
 import '../repositories/badge_repository.dart';
+import '../repositories/reward_repository.dart';
 import '../repositories/user_repository.dart';
 import 'view_state.dart';
 
@@ -12,6 +14,8 @@ class ProfileViewModel extends ChangeNotifier {
   AppUser? _user;
   UserStats? _stats;
   List<UserBadge> _badges = [];
+  RewardSummary? _rewards;
+  List<RewardTask> _rewardTasks = [];
   bool _disposed = false;
 
   ViewState get state => _state;
@@ -19,6 +23,8 @@ class ProfileViewModel extends ChangeNotifier {
   AppUser? get user => _user;
   UserStats? get stats => _stats;
   List<UserBadge> get badges => _badges;
+  RewardSummary? get rewards => _rewards;
+  List<RewardTask> get rewardTasks => _rewardTasks;
 
   @override
   void dispose() {
@@ -34,6 +40,8 @@ class ProfileViewModel extends ChangeNotifier {
       _user = await UserRepository.getUser(AppState.userId);
       _stats = await UserRepository.getUserStats(AppState.userId);
       _badges = await BadgeRepository.getUserBadges(AppState.userId);
+      _rewards = await RewardRepository.getMyRewards();
+      _rewardTasks = await RewardRepository.getMyTasks();
       _state = ViewState.idle;
     } catch (_) {
       _state = ViewState.error;
@@ -80,5 +88,17 @@ class ProfileViewModel extends ChangeNotifier {
       if (!_disposed) notifyListeners();
       return false;
     }
+  }
+
+  Future<void> advanceRewardTask(int taskId) async {
+    try {
+      final updated = await RewardRepository.advanceTask(taskId);
+      final idx = _rewardTasks.indexWhere((task) => task.id == taskId);
+      if (idx != -1) {
+        _rewardTasks[idx] = updated;
+      }
+      _rewards = await RewardRepository.getMyRewards();
+      if (!_disposed) notifyListeners();
+    } catch (_) {}
   }
 }

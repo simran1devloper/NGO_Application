@@ -1,6 +1,7 @@
 enum UserRole {
   superAdmin,
   admin,
+  mediator,
   mentor,       // Counsellor
   contentCreator,
   student,
@@ -11,6 +12,7 @@ enum UserRole {
   static UserRole fromString(String value) => switch (value) {
         'super_admin'     => UserRole.superAdmin,
         'admin'           => UserRole.admin,
+        'mediator'        => UserRole.mediator,
         'mentor'          => UserRole.mentor,
         'counsellor'      => UserRole.mentor,   // backend alias
         'content_creator' => UserRole.contentCreator,
@@ -21,6 +23,7 @@ enum UserRole {
       };
 
   bool get isAdmin          => this == superAdmin || this == admin;
+  bool get isMediator       => this == mediator;
   bool get isMentor         => this == mentor;
   bool get isStudent        => this == student;
   bool get isContentCreator => this == contentCreator;
@@ -30,6 +33,7 @@ enum UserRole {
   String get displayName => switch (this) {
         UserRole.superAdmin     => 'Super Admin',
         UserRole.admin          => 'Admin',
+        UserRole.mediator       => 'Mediator',
         UserRole.mentor         => 'Counsellor',
         UserRole.contentCreator => 'Content Creator',
         UserRole.student        => 'Student',
@@ -41,6 +45,7 @@ enum UserRole {
   String get apiValue => switch (this) {
         UserRole.superAdmin     => 'super_admin',
         UserRole.admin          => 'admin',
+        UserRole.mediator       => 'mediator',
         UserRole.mentor         => 'mentor',
         UserRole.contentCreator => 'content_creator',
         UserRole.student        => 'student',
@@ -81,6 +86,7 @@ class TokenResponse {
   const TokenResponse({
     required this.accessToken,
     required this.role,
+    required this.roles,
     required this.userId,
     required this.name,
     this.accessStatus,
@@ -89,6 +95,7 @@ class TokenResponse {
 
   final String accessToken;
   final String role;
+  final List<String> roles;
   final int userId;
   final String name;
   final String? accessStatus;
@@ -96,7 +103,7 @@ class TokenResponse {
 
   factory TokenResponse.fromJson(Map<String, dynamic> j) {
     // Handles three response shapes:
-    //  1. Login:       flat  { access_token, role, user_id, name, ... }
+    //  1. Login:       flat  { access_token, role, roles, user_id, name, ... }
     //  2. Login+user:  nested { access_token, user: { id, role, name, ... } }
     //  3. Register:    { message, user: { id, role, name, access_status, ... } }
     //     (no access_token — registration keeps user in pending state)
@@ -107,9 +114,13 @@ class TokenResponse {
     final name  = ((user?['name'] ?? j['name']) as String?) ?? '';
     final status = (user?['access_status'] ?? j['access_status']) as String?;
     final reqRole = (user?['requested_role'] ?? j['requested_role']) as String?;
+    final rawRoles = (j['roles'] as List<dynamic>?) ?? [];
+    final roles = rawRoles.whereType<String>().toList();
+    if (!roles.contains(role)) roles.insert(0, role);
     return TokenResponse(
       accessToken:   token,
       role:          role,
+      roles:         roles,
       userId:        id,
       name:          name,
       accessStatus:  status,

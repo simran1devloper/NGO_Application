@@ -15,6 +15,8 @@ class PendingApprovalsScreen extends StatefulWidget {
 
 class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
   late final AdminViewModel _vm;
+  final Set<int> _selected = {};
+  bool _selectionMode = false;
 
   @override
   void initState() {
@@ -29,6 +31,32 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
     super.dispose();
   }
 
+  void _toggleSelection(int userId) {
+    setState(() {
+      if (_selected.contains(userId)) {
+        _selected.remove(userId);
+        if (_selected.isEmpty) _selectionMode = false;
+      } else {
+        _selected.add(userId);
+        _selectionMode = true;
+      }
+    });
+  }
+
+  void _selectAll() {
+    setState(() {
+      _selected.addAll(_vm.pendingUsers.map((u) => u.id));
+      _selectionMode = true;
+    });
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selected.clear();
+      _selectionMode = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -36,22 +64,46 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.background,
         elevation: 0,
-        leading: const BackButton(color: AppColors.ink),
-        title: const Text(
-          'Pending Approvals',
-          style: TextStyle(
-            color: AppColors.ink,
-            fontWeight: FontWeight.w800,
-            fontSize: 18,
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: AppColors.ink),
-            tooltip: 'Refresh',
-            onPressed: _vm.loadPendingUsers,
-          ),
-        ],
+        leading: _selectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close, color: AppColors.ink),
+                onPressed: _clearSelection,
+              )
+            : const BackButton(color: AppColors.ink),
+        title: _selectionMode
+            ? Text(
+                '${_selected.length} selected',
+                style: const TextStyle(
+                    color: AppColors.ink, fontWeight: FontWeight.w800, fontSize: 18),
+              )
+            : const Text(
+                'Pending Approvals',
+                style: TextStyle(
+                    color: AppColors.ink, fontWeight: FontWeight.w800, fontSize: 18),
+              ),
+        actions: _selectionMode
+            ? [
+                TextButton.icon(
+                  onPressed: _selectAll,
+                  icon: const Icon(Icons.select_all, size: 18),
+                  label: const Text('All'),
+                  style: TextButton.styleFrom(foregroundColor: AppColors.ink),
+                ),
+                FilledButton.icon(
+                  onPressed: () => _bulkApprove(),
+                  icon: const Icon(Icons.check_circle_outline, size: 18),
+                  label: const Text('Approve'),
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+                ),
+                const SizedBox(width: 8),
+              ]
+            : [
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded, color: AppColors.ink),
+                  tooltip: 'Refresh',
+                  onPressed: _vm.loadPendingUsers,
+                ),
+              ],
       ),
       body: ListenableBuilder(
         listenable: _vm,
@@ -72,14 +124,64 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
             padding: const EdgeInsets.all(16),
             itemCount: _vm.pendingUsers.length,
             separatorBuilder: (_, _) => const SizedBox(height: 10),
-            itemBuilder: (context, i) => _PendingUserCard(
-              user: _vm.pendingUsers[i],
-              onTap: () => _openDetail(_vm.pendingUsers[i]),
-              onApprove: () => _quickApprove(_vm.pendingUsers[i]),
-              onReject: () => _quickReject(_vm.pendingUsers[i]),
-            ),
+            itemBuilder: (context, i) {
+              final user = _vm.pendingUsers[i];
+              return _PendingUserCard(
+                user: user,
+                isSelected: _selected.contains(user.id),
+                selectionMode: _selectionMode,
+                onTap: _selectionMode
+                    ? () => _toggleSelection(user.id)
+                    : () => _openDetail(user),
+                onLongPress: () => _toggleSelection(user.id),
+                onApprove: () => _quickApprove(user),
+                onReject:  () => _quickReject(user),
+              );
+            },
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _bulkApprove() async {
+    if (_selected.isEmpty) return;
+    final role = await _pickRole();
+    if (role == null || !mounted) return;
+
+    final confirmed = await _showConfirmDialog(
+      title: 'Approve ${_selected.length} users as ${_roleLabel(role)}?',
+      body: 'All selected users will be granted ${_roleLabel(role)} access.',
+      confirmLabel: 'Approve All',
+      confirmColor: AppColors.accent,
+    );
+    if (!confirmed || !mounted) return;
+
+    final result = await _vm.bulkApprove(
+      userIds: _selected.toList(),
+      role: role,
+    );
+    _clearSelection();
+    if (mounted) {
+      final approved = (result['approved'] as List?)?.length ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('$approved user(s) approved as ${_roleLabel(role)}.'),
+        backgroundColor: AppColors.accent,
+      ));
+    }
+  }
+
+  Future<String?> _pickRole() async {
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Assign Role', style: TextStyle(fontWeight: FontWeight.w800)),
+        children: [
+          'student', 'mentor', 'content_creator', 'admin',
+        ].map((r) => SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, r),
+              child: Text(_roleLabel(r)),
+            )).toList(),
       ),
     );
   }
@@ -185,12 +287,18 @@ class _PendingUserCard extends StatelessWidget {
     required this.onTap,
     required this.onApprove,
     required this.onReject,
+    this.isSelected = false,
+    this.selectionMode = false,
+    this.onLongPress,
   });
 
   final PendingUserItem user;
   final VoidCallback onTap;
   final VoidCallback onApprove;
   final VoidCallback onReject;
+  final bool isSelected;
+  final bool selectionMode;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -199,11 +307,14 @@ class _PendingUserCard extends StatelessWidget {
     final dateStr = _formatDate(user.createdAt);
 
     return Material(
-      color: Colors.white,
+      color: isSelected
+          ? AppColors.primary.withValues(alpha: 0.07)
+          : Colors.white,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -212,6 +323,17 @@ class _PendingUserCard extends StatelessWidget {
               // ── Header row ────────────────────────────────────────
               Row(
                 children: [
+                  if (selectionMode)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Icon(
+                        isSelected
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        color: isSelected ? AppColors.primary : AppColors.muted,
+                        size: 22,
+                      ),
+                    ),
                   CircleAvatar(
                     radius: 20,
                     backgroundColor: AppColors.primary.withValues(alpha: 0.12),

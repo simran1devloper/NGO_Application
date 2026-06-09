@@ -25,7 +25,7 @@ class UserApprovalDetailScreen extends StatefulWidget {
 
 class _UserApprovalDetailScreenState extends State<UserApprovalDetailScreen> {
   final _noteCtrl = TextEditingController();
-  String? _selectedRole;
+  final Set<String> _selectedRoles = {};
   bool _loading = false;
   bool _changed = false;
   AppUser? _user;
@@ -51,7 +51,11 @@ class _UserApprovalDetailScreenState extends State<UserApprovalDetailScreen> {
       if (mounted) {
         setState(() {
           _user = user;
-          _selectedRole = user.requestedRole ?? 'student';
+          _selectedRoles
+            ..clear()
+            ..addAll(user.roles.isNotEmpty
+                ? user.roles
+                : [user.requestedRole ?? user.role ?? 'student']);
           _loading = false;
         });
       }
@@ -127,11 +131,19 @@ class _UserApprovalDetailScreenState extends State<UserApprovalDetailScreen> {
           ],
 
           // ── Role assignment ──────────────────────────────────────────
-          _SectionLabel('Assign Role'),
+          _SectionLabel('Assign Features'),
           const SizedBox(height: 8),
           _RoleSelector(
-            selected: _selectedRole,
-            onChanged: (v) => setState(() => _selectedRole = v),
+            selected: _selectedRoles,
+            onChanged: (role, selected) {
+              setState(() {
+                if (selected) {
+                  _selectedRoles.add(role);
+                } else if (_selectedRoles.length > 1) {
+                  _selectedRoles.remove(role);
+                }
+              });
+            },
           ),
           const SizedBox(height: 20),
 
@@ -189,7 +201,7 @@ class _UserApprovalDetailScreenState extends State<UserApprovalDetailScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _loading || _selectedRole == null
+                  onPressed: _loading || _selectedRoles.isEmpty
                       ? null
                       : _approve,
                   icon: _loading
@@ -223,20 +235,22 @@ class _UserApprovalDetailScreenState extends State<UserApprovalDetailScreen> {
   }
 
   Future<void> _approve() async {
-    if (_selectedRole == null) return;
+    if (_selectedRoles.isEmpty) return;
+    final roleLabels = _selectedRoles.map(_roleLabel).join(', ');
     final confirmed = await _confirm(
-      title: 'Approve as ${_roleLabel(_selectedRole!)}?',
+      title: 'Approve with $roleLabels?',
       body:
-          '${_user!.name} will be granted access to the ${_roleLabel(_selectedRole!)} dashboard.',
+          '${_user!.name} will receive these feature areas. Admin hierarchy is separate from feature roles.',
       confirmLabel: 'Approve',
       confirmColor: AppColors.accent,
     );
     if (!confirmed || !mounted) return;
 
     setState(() => _loading = true);
-    final ok = await widget.vm.assignRole(
+    final roles = _selectedRoles.toList();
+    final ok = await widget.vm.setRoles(
       userId: widget.userId,
-      role: _selectedRole!,
+      roles: roles,
       verificationNote: _noteCtrl.text.trim().isEmpty
           ? null
           : _noteCtrl.text.trim(),
@@ -248,7 +262,7 @@ class _UserApprovalDetailScreenState extends State<UserApprovalDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${_user!.name} approved as ${_roleLabel(_selectedRole!)}.',
+            '${_user!.name} approved with $roleLabels.',
           ),
           backgroundColor: AppColors.accent,
         ),
@@ -324,10 +338,14 @@ class _UserApprovalDetailScreenState extends State<UserApprovalDetailScreen> {
   }
 
   static String _roleLabel(String role) => switch (role) {
-    'mentor' => 'Mentor',
+    'mentor'          => 'Counsellor',
     'content_creator' => 'Content Creator',
-    'admin' => 'Admin',
-    _ => 'Student',
+    'mediator'        => 'Mediator',
+    'event_manager'   => 'Event Manager',
+    'support_staff'   => 'Support Staff',
+    'admin'           => 'Admin',
+    'super_admin'     => 'Super Admin',
+    _                 => 'Student',
   };
 }
 
@@ -468,18 +486,19 @@ class _RequestedRoleBanner extends StatelessWidget {
   const _RequestedRoleBanner({required this.role});
   final String role;
 
+  static (Color, String) _meta(String role) => switch (role) {
+    'mentor'          => (AppColors.secondary,     'Counsellor'),
+    'content_creator' => (AppColors.accent,         'Content Creator'),
+    'mediator'        => (const Color(0xFF009688),  'Mediator'),
+    'event_manager'   => (const Color(0xFFE91E8C),  'Event Manager'),
+    'support_staff'   => (const Color(0xFF795548),  'Support Staff'),
+    'admin'           => (const Color(0xFF6B48FF),  'Admin'),
+    _                 => (AppColors.primary,         'Student'),
+  };
+
   @override
   Widget build(BuildContext context) {
-    final color = switch (role) {
-      'mentor' => AppColors.secondary,
-      'content_creator' => AppColors.accent,
-      _ => AppColors.primary,
-    };
-    final label = switch (role) {
-      'mentor' => 'Mentor',
-      'content_creator' => 'Content Creator',
-      _ => 'Student',
-    };
+    final (color, label) = _meta(role);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -507,86 +526,155 @@ class _RequestedRoleBanner extends StatelessWidget {
   }
 }
 
+/// Feature-based role selector. Roles are additive — selecting multiple grants
+/// the union of each role's feature set. Admin/super_admin are hierarchical.
 class _RoleSelector extends StatelessWidget {
   const _RoleSelector({required this.selected, required this.onChanged});
-  final String? selected;
-  final ValueChanged<String?> onChanged;
+  final Set<String> selected;
+  final void Function(String role, bool selected) onChanged;
 
-  static const _roles = [
-    ('student', 'Student', Icons.school_outlined, AppColors.primary),
-    ('mentor', 'Counsellor', Icons.psychology_outlined, AppColors.secondary),
+  static const _roles = <(String, String, String, IconData, Color)>[
+    (
+      'student',
+      'Student',
+      'Access to courses, events and counselling sessions.',
+      Icons.school_outlined,
+      AppColors.primary,
+    ),
+    (
+      'mentor',
+      'Counsellor',
+      'Create events & lessons · manage counselling slots · award XP & badges.',
+      Icons.psychology_outlined,
+      AppColors.secondary,
+    ),
     (
       'content_creator',
       'Content Creator',
+      'Create and publish events, lessons, quizzes and safety questions.',
       Icons.edit_note_outlined,
       AppColors.accent,
     ),
     (
+      'mediator',
+      'Mediator',
+      'Approve/reject posts, hide comments, review content. Combine with other roles to add creation features.',
+      Icons.shield_rounded,
+      Color(0xFF009688),
+    ),
+    (
       'event_manager',
       'Event Manager',
-      Icons.event_available_rounded,
-      Color(0xFF6B48FF),
+      'Full event lifecycle: create, edit, publish and delete events.',
+      Icons.event_rounded,
+      Color(0xFFE91E8C),
     ),
     (
       'support_staff',
       'Support Staff',
+      'Manage safety questions, emergency contacts and moderate comments.',
       Icons.support_agent_rounded,
-      Color(0xFF009688),
+      Color(0xFF795548),
+    ),
+    (
+      'admin',
+      'Admin',
+      'Full platform access including user management. Hierarchical — overrides all feature roles.',
+      Icons.admin_panel_settings_rounded,
+      Color(0xFF6B48FF),
     ),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: _roles.map((r) {
-        final (value, label, icon, color) = r;
-        final isSelected = selected == value;
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => onChanged(value),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? color.withValues(alpha: 0.08)
-                    : Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isSelected
-                      ? color
-                      : AppColors.muted.withValues(alpha: 0.2),
-                  width: isSelected ? 2 : 1,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.info_outline_rounded, size: 14, color: AppColors.primary),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Roles are feature-based and additive. Users can hold multiple roles — they receive the combined feature set of all selected roles. Only Admin is hierarchical.',
+                  style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w600),
                 ),
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    icon,
-                    size: 20,
-                    color: isSelected ? color : AppColors.muted,
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        ..._roles.map((r) {
+          final (value, label, desc, icon, color) = r;
+          final isSelected = selected.contains(value);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => onChanged(value, !isSelected),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isSelected ? color.withValues(alpha: 0.07) : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isSelected ? color : AppColors.muted.withValues(alpha: 0.2),
+                    width: isSelected ? 2 : 1,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        color: isSelected ? color : AppColors.ink,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      child: Icon(icon, size: 20, color: isSelected ? color : AppColors.muted),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            label,
+                            style: TextStyle(
+                              color: isSelected ? color : AppColors.ink,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            desc,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 11,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                  if (isSelected)
-                    Icon(Icons.check_circle_rounded, size: 18, color: color),
-                ],
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      child: isSelected
+                          ? Icon(Icons.check_circle_rounded, size: 18, color: color)
+                          : const Icon(Icons.add_circle_outline_rounded, size: 18, color: AppColors.muted),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      }).toList(),
+          );
+        }),
+      ],
     );
   }
 }

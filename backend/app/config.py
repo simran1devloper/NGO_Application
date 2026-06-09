@@ -40,5 +40,14 @@ class Settings:
     auth0_domain: str = os.getenv("AUTH0_DOMAIN", "")
     auth0_client_id: str = os.getenv("AUTH0_CLIENT_ID", "")
 
+    # Google reCAPTCHA v3 — set RECAPTCHA_SECRET_KEY in .env
+    # Get from https://www.google.com/recaptcha/admin
+    recaptcha_secret_key: str = os.getenv("RECAPTCHA_SECRET_KEY", "")
+    recaptcha_score_threshold: float = 0.5  # 0.0 (bot) to 1.0 (human)
+
+    # Razorpay — set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env
+    razorpay_key_id: str = os.getenv("RAZORPAY_KEY_ID", "")
+    razorpay_key_secret: str = os.getenv("RAZORPAY_KEY_SECRET", "")
+
 
 settings = Settings()

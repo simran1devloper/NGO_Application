@@ -135,6 +135,14 @@ class AppConfig {
   //   https://android-app/android/com.careskill.app/callback  (HTTPS App Links)
   static const String auth0CallbackScheme = 'com.careskill.app';
 
+  // ── Google reCAPTCHA v3 ───────────────────────────────────────────────────
+  // Get your site key from https://www.google.com/recaptcha/admin
+  //   flutter run --dart-define=RECAPTCHA_SITE_KEY=6Lc...
+  static const String recaptchaSiteKey = String.fromEnvironment(
+    'RECAPTCHA_SITE_KEY',
+    defaultValue: '',
+  );
+
   // ── WebSocket base URL ────────────────────────────────────────────────────
   /// Converts the HTTP base URL to a WebSocket base URL.
   /// http://... → ws://...   |   https://... → wss://...

@@ -19,17 +19,20 @@ class RegisterRequest(BaseModel):
     location: Optional[str] = None
     phone: Optional[str] = None
     requested_role: Optional[str] = None
+    recaptcha_token: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
     email: str
     password: str
+    recaptcha_token: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     role: str
+    roles: list[str] = []   # all roles the user holds
     user_id: int
     name: str
     access_status: Optional[str] = None

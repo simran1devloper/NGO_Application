@@ -9,8 +9,11 @@ from ..database import Base
 class UserRole(str, enum.Enum):
     super_admin     = "super_admin"
     admin           = "admin"
+    mediator        = "mediator"        # moderates content, comments, reviews
     mentor          = "mentor"
     content_creator = "content_creator"
+    event_manager   = "event_manager"   # creates and manages events
+    support_staff   = "support_staff"   # handles user support and safety queries
     student         = "student"
     guest           = "guest"
 
@@ -34,6 +37,7 @@ class User(Base):
     school_name     = Column(String, nullable=True)
     location        = Column(String, nullable=True)
     phone           = Column(String, nullable=True)
+    roles               = Column(String, nullable=True)  # JSON list e.g. '["mentor","content_creator"]'
     requested_role      = Column(String, nullable=True)
     verification_note   = Column(String, nullable=True)
     reset_token         = Column(String, nullable=True)

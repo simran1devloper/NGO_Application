@@ -22,7 +22,9 @@ from .models import (  # noqa: F401 — registers all ORM models before create_a
     ChatMessage,
     AdminNotification,
     StudentReminder,
+    RewardRule, RewardTask, RewardTransaction,
     CreatorPost,
+    Donation, Payment, Feedback, DiscountCode, Reaction, Comment, Review,
 )
 from .database import Base
 from .dev_migrations import ensure_sqlite_schema
@@ -37,6 +39,15 @@ from .routers import chat
 from .routers import creator
 from .routers import upload
 from .routers import calendar
+from .routers import donation
+from .routers import payment
+from .routers import feedback
+from .routers import discount
+from .routers import reaction
+from .routers import comment
+from .routers import review
+from .routers import moderation
+from .routers import rewards
 
 Base.metadata.create_all(bind=engine)
 ensure_sqlite_schema(engine)
@@ -84,6 +95,15 @@ app.include_router(chat.router)
 app.include_router(creator.router)
 app.include_router(upload.router)
 app.include_router(calendar.router)
+app.include_router(donation.router)
+app.include_router(payment.router)
+app.include_router(feedback.router)
+app.include_router(discount.router)
+app.include_router(reaction.router)
+app.include_router(comment.router)
+app.include_router(review.router)
+app.include_router(moderation.router)
+app.include_router(rewards.router)
 
 
 @app.get("/health", tags=["Health"])

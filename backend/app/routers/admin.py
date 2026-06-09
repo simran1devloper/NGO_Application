@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,6 +8,7 @@ from ..database import get_db
 from ..dependencies import admin_only
 from ..models.notification import AdminNotification
 from ..models.user import User, UserRole
+from ..permissions import highest_role, serialize_roles
 from ..schemas.user import UserResponse
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -29,6 +30,23 @@ class BlockBody(BaseModel):
     reason: Optional[str] = None
 
 
+class BulkApproveBody(BaseModel):
+    user_ids: List[int]
+    role: str
+    access_status: str = "approved"
+    verification_note: Optional[str] = None
+
+
+class BulkDeleteBody(BaseModel):
+    user_ids: List[int]
+
+
+class MultiRoleBody(BaseModel):
+    roles: List[str]   # e.g. ["mentor", "content_creator"]
+    access_status: str = "approved"
+    verification_note: Optional[str] = None
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _get_or_404(db: Session, user_id: int) -> User:
@@ -36,6 +54,31 @@ def _get_or_404(db: Session, user_id: int) -> User:
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+def _parse_role_strings(role_values: List[str]) -> list[UserRole]:
+    if not role_values:
+        raise HTTPException(status_code=422, detail="roles list must not be empty")
+    roles: list[UserRole] = []
+    for value in role_values:
+        try:
+            role = UserRole(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid role: {value}") from exc
+        if role not in roles:
+            roles.append(role)
+    return roles
+
+
+def _assert_can_assign_roles(current_user: User, roles: list[UserRole]) -> None:
+    if UserRole.super_admin in roles and current_user.role != UserRole.super_admin:
+        raise HTTPException(status_code=403, detail="Only super_admin can assign super_admin role")
+
+
+def _apply_roles(user: User, roles: list[UserRole]) -> None:
+    primary = highest_role(roles)
+    user.role = primary
+    user.roles = serialize_roles(roles)
 
 
 # ── stats ─────────────────────────────────────────────────────────────────────
@@ -53,7 +96,11 @@ def get_stats(
 
     role_counts: dict[str, int] = {}
     for role in UserRole:
-        role_counts[role.value] = db.query(User).filter(User.role == role).count()
+        role_counts[role.value] = (
+            db.query(User)
+            .filter((User.role == role) | (User.roles.contains(f'"{role.value}"')))
+            .count()
+        )
 
     return {
         "total_users":    total,
@@ -86,7 +133,10 @@ def list_users(
         )
     if role:
         try:
-            q = q.filter(User.role == UserRole(role))
+            role_obj = UserRole(role)
+            q = q.filter(
+                (User.role == role_obj) | (User.roles.contains(f'"{role_obj.value}"'))
+            )
         except ValueError:
             pass
     if status:
@@ -128,16 +178,12 @@ def assign_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(admin_only),
 ):
-    try:
-        new_role = UserRole(payload.role)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid role: {payload.role}")
-
-    if new_role == UserRole.super_admin and current_user.role != UserRole.super_admin:
-        raise HTTPException(status_code=403, detail="Only super_admin can assign super_admin role")
+    roles = _parse_role_strings([payload.role])
+    _assert_can_assign_roles(current_user, roles)
+    new_role = roles[0]
 
     user = _get_or_404(db, user_id)
-    user.role = new_role
+    _apply_roles(user, roles)
     user.access_status = payload.access_status
     if payload.verification_note:
         user.verification_note = payload.verification_note
@@ -146,6 +192,27 @@ def assign_role(
             title="Account Approved",
             message=f"{user.name} has been approved as {new_role.value}.",
             ntype="approval")
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.patch("/users/{user_id}/set-roles", response_model=UserResponse,
+              summary="Set all roles for a user — primary role auto-computed as highest [admin only]")
+def set_user_roles(
+    user_id: int,
+    payload: MultiRoleBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    role_objs = _parse_role_strings(payload.roles)
+    _assert_can_assign_roles(current_user, role_objs)
+
+    user = _get_or_404(db, user_id)
+    _apply_roles(user, role_objs)
+    user.access_status = payload.access_status
+    if payload.verification_note:
+        user.verification_note = payload.verification_note
     db.commit()
     db.refresh(user)
     return user
@@ -211,6 +278,58 @@ def delete_user(
     user = _get_or_404(db, user_id)
     db.delete(user)
     db.commit()
+
+
+# ── bulk operations ───────────────────────────────────────────────────────────
+
+@router.post("/users/bulk-approve",
+             summary="Approve multiple users and assign a role in one call [admin only]")
+def bulk_approve_users(
+    payload: BulkApproveBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    roles = _parse_role_strings([payload.role])
+    _assert_can_assign_roles(current_user, roles)
+    new_role = roles[0]
+
+    approved = []
+    not_found = []
+    for uid in payload.user_ids:
+        user = db.query(User).filter(User.id == uid).first()
+        if not user:
+            not_found.append(uid)
+            continue
+        _apply_roles(user, roles)
+        user.access_status = payload.access_status
+        if payload.verification_note:
+            user.verification_note = payload.verification_note
+        approved.append(uid)
+
+    db.commit()
+    return {"approved": approved, "not_found": not_found}
+
+
+@router.post("/users/bulk-delete", status_code=200,
+             summary="Permanently delete multiple users [admin only]")
+def bulk_delete_users(
+    payload: BulkDeleteBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    deleted = []
+    not_found = []
+    for uid in payload.user_ids:
+        if uid == current_user.id:
+            continue  # prevent self-deletion
+        user = db.query(User).filter(User.id == uid).first()
+        if not user:
+            not_found.append(uid)
+            continue
+        db.delete(user)
+        deleted.append(uid)
+    db.commit()
+    return {"deleted": deleted, "not_found": not_found}
 
 
 # ── notifications ─────────────────────────────────────────────────────────────
